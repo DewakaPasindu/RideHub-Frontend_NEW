@@ -173,7 +173,7 @@ The migrations create the following tables:
 
 All tables include Row Level Security (RLS) policies for secure data access.
 
-### Step 6: Start Development Server
+### Step 6: Start Development Server.
 
 ```bash
 npm run dev
@@ -651,5 +651,6 @@ For support and questions:
 - Email: support@rentwheels.com
 - Create an issue in the repository
 - Check existing documentation and FAQs
-#   R i d e H u b - F r o n t e n d _ N E W  
+#   R i d e H u b - F r o n t e n d _ N E W 
+ 
  
