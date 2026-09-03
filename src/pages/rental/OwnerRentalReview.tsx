@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Eye, ShieldAlert, CheckCircle, Clock, FileText, AlertTriangle, ArrowLeft, Fuel, Gauge, Compass } from 'lucide-react';
-import { RentalService, RentalApplication } from '../../services/api/rental.service';
+import { Eye, ShieldAlert, CheckCircle, Clock, FileText, AlertTriangle, ArrowLeft, Fuel, Gauge, Compass, Car, X, ExternalLink } from 'lucide-react';
+import { RentalService, RentalApplication, RentalFinalSummary } from '../../services/api/rental.service';
+import { tokenStore } from '../../services/api/client';
 import ConditionForm from '../../components/rental/ConditionForm';
 import HandoverConfirmation from '../../components/rental/HandoverConfirmation';
 import ConditionComparison from '../../components/rental/ConditionComparison';
+import FinalRentalSummaryCard from '../../components/rental/FinalRentalSummaryCard';
+import RentalPriceEstimateCard from '../../components/rental/RentalPriceEstimateCard';
 
 const DAMAGE_LABELS: Record<string, string> = {
   front: 'Front Bumper / Grille',
@@ -25,6 +28,43 @@ export default function OwnerRentalReview() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ url: string; title: string; blobUrl?: string | null; loading?: boolean } | null>(null);
+
+  const handlePreviewDocument = async (doc: any) => {
+    const token = tokenStore.get() || localStorage.getItem('access_token') || '';
+    const authenticatedUrl = token
+      ? (doc.url.includes('?') ? `${doc.url}&token=${encodeURIComponent(token)}` : `${doc.url}?token=${encodeURIComponent(token)}`)
+      : doc.url;
+
+    setPreviewDoc({
+      url: authenticatedUrl,
+      title: doc.document_type.replace(/_/g, ' '),
+      blobUrl: null,
+      loading: true,
+    });
+
+    try {
+      const res = await fetch(doc.url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        setPreviewDoc(prev => (prev ? { ...prev, blobUrl: objectUrl, loading: false } : null));
+      } else {
+        setPreviewDoc(prev => (prev ? { ...prev, blobUrl: authenticatedUrl, loading: false } : null));
+      }
+    } catch {
+      setPreviewDoc(prev => (prev ? { ...prev, blobUrl: authenticatedUrl, loading: false } : null));
+    }
+  };
+
+  const closePreview = () => {
+    if (previewDoc?.blobUrl && previewDoc.blobUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(previewDoc.blobUrl);
+    }
+    setPreviewDoc(null);
+  };
   
   // Rejection/Request Info variables
   const [rejectReason, setRejectReason] = useState('');
@@ -36,11 +76,19 @@ export default function OwnerRentalReview() {
   const [liveLocation, setLiveLocation] = useState<any | null>(null);
   const [locationTimer, setLocationTimer] = useState<any>(null);
 
+  const [summaryData, setSummaryData] = useState<RentalFinalSummary | null>(null);
+
   const loadData = async () => {
     if (!id) return;
     try {
       const data = await RentalService.getApplication(id);
       setApp(data);
+      if (data.status === 'returned' || data.status === 'completed') {
+        const sum = await RentalService.getSummary(id);
+        if (sum?.summary) {
+          setSummaryData(sum.summary);
+        }
+      }
     } catch (err: any) {
       console.error(err);
       setError(err?.message || "Failed to load request details.");
@@ -215,9 +263,28 @@ export default function OwnerRentalReview() {
       )}
 
       {/* Case 1: Needs review approval */}
-      {app.status === 'submitted' && (
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 mb-8">
-          <h3 className="text-sm font-bold text-slate-700 mb-4">Application Audit Actions</h3>
+      {(app.status === 'submitted' || app.status === 'under_review') && (
+        <div className="space-y-6 mb-8">
+          <RentalPriceEstimateCard
+            estimate={{
+              vehicle_id: app.vehicle_id,
+              vehicle_uuid: app.vehicle?.uuid || '',
+              make: app.vehicle?.make || '',
+              model: app.vehicle?.model || '',
+              daily_rate: app.daily_rate ?? app.vehicle?.price_per_day ?? 0,
+              estimated_days: app.estimated_days ?? 1,
+              included_km_per_day: app.included_km_per_day ?? 100,
+              estimated_included_km: app.estimated_included_km ?? (app.estimated_days ?? 1) * 100,
+              extra_km_rate: app.extra_km_rate ?? app.vehicle?.extra_km_rate ?? 50,
+              estimated_base_amount: app.estimated_base_amount ?? 0,
+              estimated_total_amount: app.estimated_total_amount ?? 0,
+              disclaimer: 'Approximate price only. Final rental price will be calculated after vehicle return using the actual odometer reading.',
+            }}
+            vehicleName={app.vehicle ? `${app.vehicle.make} ${app.vehicle.model}` : undefined}
+          />
+
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6">
+            <h3 className="text-sm font-bold text-slate-700 mb-4">Application Audit Actions</h3>
           <div className="flex flex-wrap gap-3">
             <button
               onClick={handleApprove}
@@ -280,6 +347,7 @@ export default function OwnerRentalReview() {
             </div>
           )}
         </div>
+      </div>
       )}
 
       {/* Case 2: Approved -> Prepare vehicle condition report */}
@@ -345,15 +413,26 @@ export default function OwnerRentalReview() {
       )}
 
       {/* Case 4: Rental Completed comparison */}
-      {app.status === 'completed' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 mb-8">
-          <h3 className="text-lg font-black text-slate-800 mb-6">Condition comparison Report</h3>
-          <ConditionComparison comparison={{
-            pre_rental: app.conditions?.find(c => c.inspection_stage === 'pre_rental') || null,
-            return: app.conditions?.find(c => c.inspection_stage === 'return') || null,
-            odometer_difference: 0, // values loaded via comparison endpoint
-            fuel_difference: 0
-          }} />
+      {/* Case 4: Final Summary & Return Verification */}
+      {(app.status === 'returned' || app.status === 'completed') && (
+        <div className="space-y-8 mb-8">
+          {summaryData ? (
+            <FinalRentalSummaryCard summary={summaryData} role="owner" />
+          ) : (
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-center text-xs text-slate-500 animate-pulse">
+              Loading final rental calculation summary...
+            </div>
+          )}
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <h3 className="text-lg font-black text-slate-800 mb-6">Condition Comparison Report</h3>
+            <ConditionComparison comparison={{
+              pre_rental: app.conditions?.find(c => c.inspection_stage === 'pre_rental') || null,
+              return: app.conditions?.find(c => c.inspection_stage === 'return') || null,
+              odometer_difference: (app.ending_odometer || 0) - (app.starting_odometer || 0),
+              fuel_difference: 0
+            }} />
+          </div>
         </div>
       )}
 
@@ -381,14 +460,15 @@ export default function OwnerRentalReview() {
                   <span className="text-[10px] font-bold text-slate-600 capitalize truncate max-w-[120px]">
                     {doc.document_type.replace(/_/g, ' ')}
                   </span>
-                  <a
-                    href={doc.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-1 bg-white border rounded text-slate-500 hover:text-blue-600"
+                  <button
+                    type="button"
+                    onClick={() => handlePreviewDocument(doc)}
+                    className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-blue-600 transition-colors flex items-center space-x-1 shadow-sm"
+                    title="Preview Document"
                   >
-                    <Eye className="h-3 w-3" />
-                  </a>
+                    <Eye className="h-3.5 w-3.5" />
+                    <span className="text-[10px] font-bold">View</span>
+                  </button>
                 </div>
               ))}
             </div>
@@ -407,6 +487,49 @@ export default function OwnerRentalReview() {
           </div>
         </div>
       </div>
+
+      {/* Document Preview Modal */}
+      {previewDoc && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in duration-200">
+            <div className="p-4 border-b flex items-center justify-between bg-slate-50">
+              <h4 className="text-sm font-bold text-slate-800 capitalize">{previewDoc.title}</h4>
+              <div className="flex items-center space-x-2">
+                <a
+                  href={previewDoc.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-blue-600 hover:underline flex items-center space-x-1 px-2.5 py-1 border border-blue-200 rounded-lg bg-blue-50 font-semibold"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  <span>Open in New Tab</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={closePreview}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div className="p-4 overflow-auto flex-1 flex items-center justify-center bg-slate-900/5 min-h-[320px]">
+              {previewDoc.loading ? (
+                <div className="flex flex-col items-center justify-center py-12 space-y-3">
+                  <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs text-slate-500 font-semibold">Loading verification document...</span>
+                </div>
+              ) : (
+                <img
+                  src={previewDoc.blobUrl || previewDoc.url}
+                  alt={previewDoc.title}
+                  className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-sm border border-slate-200 bg-white"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

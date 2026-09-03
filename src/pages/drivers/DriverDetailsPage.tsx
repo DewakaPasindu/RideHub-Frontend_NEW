@@ -177,19 +177,51 @@ export default function DriverDetailsPage() {
               <div className="flex justify-between"><span className="text-gray-500">Rating</span><span className="font-medium">{driver.rating.toFixed(1)} / 5.0</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Reviews</span><span className="font-medium">{driver.review_count}</span></div>
             </div>
-            {driver.approval_status === 'approved' && driver.availability_status === 'available' ? (
-              isLoggedIn ? (
-                <button onClick={() => navigate(`/drivers/book/${driver.id}`)} className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2">
-                  <Calendar className="h-5 w-5" /><span>Book This Driver</span>
-                </button>
-              ) : (
-                <button onClick={() => navigate('/login')} className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors">Login to Book</button>
-              )
-            ) : (
-              <div className="w-full py-3 bg-gray-100 text-gray-500 rounded-xl text-center text-sm">
-                {driver.approval_status !== 'approved' ? 'Pending Approval' : 'Currently Unavailable'}
-              </div>
-            )}
+            {(() => {
+              const isSelf = Boolean(user && driver && (
+                driver.user_id === user.id ||
+                (driver as any).user?.id === user.id ||
+                ((driver as any).user?.email && user.email && (driver as any).user?.email.toLowerCase() === user.email.toLowerCase()) ||
+                ((driver as any).email && user.email && (driver as any).email.toLowerCase() === user.email.toLowerCase())
+              ));
+
+              if (driver.approval_status === 'approved' && driver.availability_status === 'available') {
+                if (!isLoggedIn) {
+                  return (
+                    <button onClick={() => navigate('/login')} className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors">
+                      Login to Book
+                    </button>
+                  );
+                }
+
+                if (isSelf) {
+                  return (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-center space-y-2">
+                      <p className="text-xs font-bold text-amber-800">This is your driver profile.</p>
+                      <p className="text-[11px] text-amber-600">You cannot book yourself as a driver.</p>
+                      <button
+                        onClick={() => navigate('/availability')}
+                        className="w-full py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors shadow-sm"
+                      >
+                        Manage My Availability
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <button onClick={() => navigate(`/drivers/book/${driver.id}`)} className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2">
+                    <Calendar className="h-5 w-5" /><span>Book This Driver</span>
+                  </button>
+                );
+              }
+
+              return (
+                <div className="w-full py-3 bg-gray-100 text-gray-500 rounded-xl text-center text-sm">
+                  {driver.approval_status !== 'approved' ? 'Pending Approval' : 'Currently Unavailable'}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

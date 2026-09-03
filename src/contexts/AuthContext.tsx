@@ -9,8 +9,12 @@ interface AuthContextUser {
   id: string;
   email: string;
   name: string;
+  first_name?: string;
+  last_name?: string;
   role: 'user' | 'driver' | 'admin' | 'superadmin';
+  roles?: string[];
   isDriver: boolean;
+  isAdmin?: boolean;
 }
 
 interface AuthContextType {
@@ -34,13 +38,32 @@ export const useAuth = () => {
   return ctx;
 };
 
-const toContextUser = (u: AuthUser): AuthContextUser => ({
-  id: u.id,
-  email: u.email,
-  name: `${u.first_name} ${u.last_name}`,
-  role: u.role,
-  isDriver: u.is_driver,
-});
+const toContextUser = (u: any): AuthContextUser => {
+  const roles: string[] = Array.isArray(u.roles) ? u.roles : [];
+  let resolvedRole: 'user' | 'driver' | 'admin' | 'superadmin' = 'user';
+  
+  if (roles.includes('Super Admin') || u.role === 'superadmin') {
+    resolvedRole = 'superadmin';
+  } else if (roles.includes('Admin') || u.role === 'admin') {
+    resolvedRole = 'admin';
+  } else if (roles.includes('Driver') || u.is_driver || u.role === 'driver') {
+    resolvedRole = 'driver';
+  }
+
+  const name = u.full_name || (u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.name || 'User');
+
+  return {
+    id: u.uuid || u.id,
+    email: u.email,
+    name,
+    first_name: u.first_name,
+    last_name: u.last_name,
+    role: resolvedRole,
+    roles,
+    isDriver: !!(u.is_driver || roles.includes('Driver') || resolvedRole === 'driver'),
+    isAdmin: roles.includes('Admin') || roles.includes('Super Admin') || resolvedRole === 'admin' || resolvedRole === 'superadmin',
+  };
+};
 
 const USER_KEY = 'user';
 
@@ -134,10 +157,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const hasRole = (roles: string[]) => !!user && roles.includes(user.role);
-  const isAdmin = () => !!user && ['admin', 'superadmin'].includes(user.role);
-  const isSuperAdmin = () => user?.role === 'superadmin';
-  const isDriver = () => !!user && (user.isDriver || user.role === 'driver');
+  const hasRole = (roles: string[]) => {
+    if (!user) return false;
+    return roles.includes(user.role) || (user.roles && user.roles.some(r => roles.includes(r)));
+  };
+  const isAdmin = () => !!user && (user.role === 'admin' || user.role === 'superadmin' || !!(user.roles && (user.roles.includes('Admin') || user.roles.includes('Super Admin'))));
+  const isSuperAdmin = () => !!user && (user.role === 'superadmin' || !!(user.roles && user.roles.includes('Super Admin')));
+  const isDriver = () => !!user && (user.isDriver || user.role === 'driver' || !!(user.roles && user.roles.includes('Driver')));
 
   if (loading) {
     return (

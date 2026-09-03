@@ -1,5 +1,57 @@
 import api, { unwrap, multipartConfig } from './client';
 
+export interface RentalPriceEstimate {
+  vehicle_id: number;
+  vehicle_uuid: string;
+  make: string;
+  model: string;
+  daily_rate: number;
+  hourly_rate?: number;
+  estimated_days: number;
+  duration_hours?: number;
+  full_days?: number;
+  extra_hours?: number;
+  included_km_per_day: number;
+  estimated_included_km: number;
+  extra_km_rate: number;
+  estimated_base_amount: number;
+  estimated_total_amount: number;
+  disclaimer: string;
+}
+
+export interface RentalFinalSummary {
+  vehicle_name: string;
+  vehicle_registration: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  borrowed_date: string;
+  borrowed_time: string;
+  borrowed_datetime: string;
+  returned_date: string;
+  returned_time: string;
+  returned_datetime: string;
+  total_rental_days: number;
+  duration_hours?: number | null;
+  full_days?: number | null;
+  extra_hours?: number | null;
+  daily_rental_rate: number;
+  hourly_rental_rate?: number;
+  base_rental_amount: number;
+  starting_odometer: number;
+  ending_odometer: number;
+  actual_km: number;
+  included_km: number;
+  extra_km: number;
+  additional_km_rate: number;
+  additional_km_charge: number;
+  damage_status: 'no_damage' | 'damage_found' | 'other_complaint';
+  damage_description: string | null;
+  final_rental_amount: number;
+  return_photos?: Array<{ id: number; type: string; url: string }>;
+  review?: { rating: number; comment: string; created_at: string } | null;
+}
+
 export interface RentalApplication {
   id: number;
   uuid: string;
@@ -7,6 +59,16 @@ export interface RentalApplication {
   customer_id: number;
   vehicle_id: number;
   status: string;
+
+  // Snapshot Pricing & Estimates
+  daily_rate?: number;
+  extra_km_rate?: number;
+  included_km_per_day?: number;
+  estimated_days?: number;
+  estimated_included_km?: number;
+  estimated_base_amount?: number;
+  estimated_total_amount?: number;
+
   first_name: string;
   last_name: string;
   phone: string;
@@ -24,6 +86,31 @@ export interface RentalApplication {
   return_longitude: number;
   start_at: string;
   end_at: string;
+
+  // Return & Final Calculation
+  returned_at?: string | null;
+  final_rental_days?: number | null;
+  final_included_km?: number | null;
+  starting_odometer?: number | null;
+  ending_odometer?: number | null;
+  actual_km?: number | null;
+  extra_km?: number | null;
+  base_amount?: number | null;
+  extra_km_charge?: number | null;
+  final_amount?: number | null;
+  return_condition?: 'no_damage' | 'damage_found' | 'other_complaint' | null;
+  damage_description?: string | null;
+
+  review?: {
+    id: number;
+    uuid: string;
+    rating: number;
+    comment: string;
+    status: string;
+    created_at: string;
+  } | null;
+  has_reviewed?: boolean;
+
   passenger_count: number;
   luggage_requirement: 'light' | 'medium' | 'heavy';
   rental_purpose: string | null;
@@ -126,6 +213,11 @@ export const RentalService = {
 
   async submitApplication(uuid: string): Promise<RentalApplication> {
     const res = await api.post(`/rental-applications/${uuid}/submit`);
+    return unwrap(res);
+  },
+
+  async cancelApplication(uuid: string, reason?: string): Promise<RentalApplication> {
+    const res = await api.post(`/rental-applications/${uuid}/cancel`, { reason });
     return unwrap(res);
   },
 
@@ -237,9 +329,39 @@ export const RentalService = {
     return unwrap(res);
   },
 
-  // Return Completion
-  async completeReturn(uuid: string): Promise<RentalApplication> {
-    const res = await api.post(`/rentals/${uuid}/return`);
+  // Price Estimate
+  async getEstimate(payload: {
+    vehicle_id: string | number;
+    start_at: string;
+    end_at: string;
+  }): Promise<RentalPriceEstimate> {
+    const res = await api.post('/rentals/estimate', payload);
+    return unwrap(res);
+  },
+
+  // Return Completion & Final Calculation
+  async completeReturn(uuid: string, data: {
+    returned_at?: string;
+    ending_odometer: number;
+    return_condition: 'no_damage' | 'damage_found' | 'other_complaint';
+    damage_description?: string;
+  }): Promise<RentalApplication> {
+    const res = await api.post(`/rentals/${uuid}/return`, data);
+    return unwrap(res);
+  },
+
+  // Final Rental Summary
+  async getSummary(uuid: string): Promise<{ rental: RentalApplication; summary: RentalFinalSummary }> {
+    const res = await api.get(`/rentals/${uuid}/summary`);
+    return unwrap(res);
+  },
+
+  // Mandatory Customer Review
+  async submitReview(uuid: string, data: {
+    rating: number;
+    comment: string;
+  }): Promise<{ rental: RentalApplication; review: any }> {
+    const res = await api.post(`/rentals/${uuid}/review`, data);
     return unwrap(res);
   },
 };

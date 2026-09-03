@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation as useRouterLocation } from 'react-router-dom';
-import { Plus, Car, Zap, Search, SlidersHorizontal, X, Star, Users, Fuel, Settings2, Thermometer, MapPin, ChevronRight, Filter, Tag, Navigation, Crosshair, Loader, DollarSign, Route as RouteIcon, UserCheck, UserX } from 'lucide-react';
+import { Plus, Car, Zap, Search, SlidersHorizontal, X, Star, Users, Fuel, Settings2, Thermometer, MapPin, ChevronRight, Filter, Tag, Navigation, Crosshair, Loader, DollarSign, Route as RouteIcon, UserCheck, UserX, Shield } from 'lucide-react';
 import { useLocation as useGPS } from '../../contexts/LocationContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { VehicleService } from '../../services/api/VehicleService';
@@ -144,11 +144,21 @@ function LocationAutocomplete({
 
 // ─── Vehicle Card ─────────────────────────────────────────────────────────────
 
-function VehicleCard({ vehicle, onBook }: { vehicle: Vehicle; onBook: () => void }) {
+function VehicleCard({
+  vehicle,
+  onBook,
+  onSelfDrive,
+  onViewDetails,
+}: {
+  vehicle: Vehicle;
+  onBook: () => void;
+  onSelfDrive: () => void;
+  onViewDetails: () => void;
+}) {
   const img = vehicle.images?.[0] || VEHICLE_PLACEHOLDER;
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200 group">
-      <div className="relative h-48 overflow-hidden">
+    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200 group flex flex-col justify-between">
+      <div className="relative h-48 overflow-hidden cursor-pointer" onClick={onViewDetails} title="Click to view vehicle details">
         <img src={img} alt={`${vehicle.brand} ${vehicle.model}`}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           onError={e => { (e.target as HTMLImageElement).src = VEHICLE_PLACEHOLDER; }} />
@@ -162,30 +172,65 @@ function VehicleCard({ vehicle, onBook }: { vehicle: Vehicle; onBook: () => void
           </div>
         )}
       </div>
-      <div className="p-4">
-        <h3 className="font-bold text-gray-900 truncate">{vehicle.brand} {vehicle.model}</h3>
-        <p className="text-xs text-gray-500 mb-3">{vehicle.year} · {vehicle.vehicle_number}</p>
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          <span className="flex items-center space-x-1 text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-lg"><Users className="h-3 w-3" /><span>{vehicle.seat_count} seats</span></span>
-          <span className="flex items-center space-x-1 text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-lg capitalize"><Fuel className="h-3 w-3" /><span>{vehicle.fuel_type}</span></span>
-          <span className="flex items-center space-x-1 text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-lg capitalize"><Settings2 className="h-3 w-3" /><span>{vehicle.transmission}</span></span>
+      <div className="p-4 flex-1 flex flex-col justify-between">
+        <div>
+          <h3 className="font-bold text-gray-900 truncate cursor-pointer hover:text-blue-600 transition-colors" onClick={onViewDetails}>
+            {vehicle.brand} {vehicle.model}
+          </h3>
+          <p className="text-xs text-gray-500 mb-3">{vehicle.year} · {vehicle.vehicle_number}</p>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            <span className="flex items-center space-x-1 text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-lg"><Users className="h-3 w-3" /><span>{vehicle.seat_count} seats</span></span>
+            <span className="flex items-center space-x-1 text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-lg capitalize"><Fuel className="h-3 w-3" /><span>{vehicle.fuel_type}</span></span>
+            <span className="flex items-center space-x-1 text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded-lg capitalize"><Settings2 className="h-3 w-3" /><span>{vehicle.transmission}</span></span>
+          </div>
+          {vehicle.avg_rating !== undefined && vehicle.avg_rating > 0 && (
+            <div className="flex items-center space-x-1 mb-3">
+              <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
+              <span className="text-xs font-semibold text-gray-700">{vehicle.avg_rating.toFixed(1)}</span>
+              <span className="text-xs text-gray-400">({vehicle.review_count} reviews)</span>
+            </div>
+          )}
         </div>
-        {vehicle.avg_rating !== undefined && vehicle.avg_rating > 0 && (
-          <div className="flex items-center space-x-1 mb-3">
-            <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
-            <span className="text-xs font-semibold text-gray-700">{vehicle.avg_rating.toFixed(1)}</span>
-            <span className="text-xs text-gray-400">({vehicle.review_count} reviews)</span>
+        <div className="pt-3 border-t border-gray-100">
+          <div className="flex items-baseline justify-between mb-1">
+            {vehicle.pricing_type === 'per_km' ? (
+              <>
+                <span className="text-xl font-black text-blue-600">LKR {(vehicle.price_per_km || 0).toLocaleString()}</span>
+                <span className="text-xs text-gray-400 font-medium">per km</span>
+              </>
+            ) : (
+              <>
+                <span className="text-xl font-black text-blue-600">LKR {vehicle.price_per_day.toLocaleString()}</span>
+                <span className="text-xs text-gray-400 font-medium">per day</span>
+              </>
+            )}
           </div>
-        )}
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xl font-black text-blue-600">LKR {vehicle.price_per_day.toLocaleString()}</p>
-            <p className="text-xs text-gray-400">per day</p>
+          {vehicle.pricing_type !== 'per_km' && (
+            <div className="text-[10px] text-slate-500 mb-2.5 flex items-center justify-between">
+              <span>{vehicle.included_km_per_day || 100} KM/day included</span>
+              <span className="text-amber-700 font-bold">+LKR {vehicle.extra_km_rate || 50}/extra km</span>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onSelfDrive}
+              title="Rent this vehicle without a driver"
+              className="flex items-center justify-center space-x-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white px-2 py-2 rounded-xl text-xs font-bold transition-all shadow-sm"
+            >
+              <Shield className="h-3.5 w-3.5" />
+              <span>Self-Drive</span>
+            </button>
+            <button
+              type="button"
+              onClick={onBook}
+              title="Book this vehicle with a driver"
+              className="flex items-center justify-center space-x-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white px-2 py-2 rounded-xl text-xs font-bold transition-all shadow-sm"
+            >
+              <span>With Driver</span>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
           </div>
-          <button onClick={onBook}
-            className="flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors">
-            <span>Book</span><ChevronRight className="h-4 w-4" />
-          </button>
         </div>
       </div>
     </div>
@@ -194,54 +239,84 @@ function VehicleCard({ vehicle, onBook }: { vehicle: Vehicle; onBook: () => void
 
 // ─── AI Recommendation Card ───────────────────────────────────────────────────
 
-function AIRecommendationCard({ rec, rank, onBook }: { rec: VehicleRecommendation; rank: number; onBook: () => void }) {
+function AIRecommendationCard({
+  rec,
+  rank,
+  onBook,
+  onSelfDrive,
+  onViewDetails,
+}: {
+  rec: VehicleRecommendation;
+  rank: number;
+  onBook: () => void;
+  onSelfDrive: () => void;
+  onViewDetails: () => void;
+}) {
   const v = rec.vehicle;
   const isTop = rank === 1;
   return (
-    <div className={`bg-white rounded-2xl border-2 overflow-hidden transition-all ${isTop ? 'border-blue-400 shadow-lg shadow-blue-100' : 'border-gray-200 hover:border-gray-300 shadow-sm'}`}>
-      <div className="relative h-44">
-        <img src={v.images?.[0] || VEHICLE_PLACEHOLDER} alt={`${v.brand} ${v.model}`}
-          className="w-full h-full object-cover"
-          onError={e => { (e.target as HTMLImageElement).src = VEHICLE_PLACEHOLDER; }} />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-transparent" />
-        {isTop && (
-          <div className="absolute top-3 left-3 flex items-center space-x-1 bg-blue-600 text-white text-xs font-bold px-2.5 py-1 rounded-full">
-            <Zap className="h-3 w-3 text-yellow-300" /><span>Best Match</span>
+    <div className={`bg-white rounded-2xl border-2 overflow-hidden transition-all flex flex-col justify-between ${isTop ? 'border-blue-400 shadow-lg shadow-blue-100' : 'border-gray-200 hover:border-gray-300 shadow-sm'}`}>
+      <div>
+        <div className="relative h-44 cursor-pointer" onClick={onViewDetails}>
+          <img src={v.images?.[0] || VEHICLE_PLACEHOLDER} alt={`${v.brand} ${v.model}`}
+            className="w-full h-full object-cover"
+            onError={e => { (e.target as HTMLImageElement).src = VEHICLE_PLACEHOLDER; }} />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-transparent" />
+          {isTop && (
+            <div className="absolute top-3 left-3 flex items-center space-x-1 bg-blue-600 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+              <Zap className="h-3 w-3 text-yellow-300" /><span>Best Match</span>
+            </div>
+          )}
+          <div className="absolute top-3 right-3 bg-white/90 text-gray-700 text-xs font-bold px-2 py-0.5 rounded-full">#{rank}</div>
+          <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
+            <p className="text-white font-black text-xl drop-shadow">
+              LKR {v.price_per_day.toLocaleString()}<span className="text-sm font-normal text-white/70">/day</span>
+            </p>
+            <div className={`text-xs font-bold px-2 py-0.5 rounded-full ${rec.confidence >= 80 ? 'bg-emerald-500 text-white' : rec.confidence >= 60 ? 'bg-blue-500 text-white' : 'bg-amber-400 text-white'}`}>
+              {rec.confidence}% match
+            </div>
           </div>
-        )}
-        <div className="absolute top-3 right-3 bg-white/90 text-gray-700 text-xs font-bold px-2 py-0.5 rounded-full">#{rank}</div>
-        <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
-          <p className="text-white font-black text-xl drop-shadow">
-            LKR {v.price_per_day.toLocaleString()}<span className="text-sm font-normal text-white/70">/day</span>
-          </p>
-          <div className={`text-xs font-bold px-2 py-0.5 rounded-full ${rec.confidence >= 80 ? 'bg-emerald-500 text-white' : rec.confidence >= 60 ? 'bg-blue-500 text-white' : 'bg-amber-400 text-white'}`}>
-            {rec.confidence}% match
+        </div>
+        <div className="p-4">
+          <h3 className="font-bold text-gray-900 cursor-pointer hover:text-blue-600" onClick={onViewDetails}>{v.brand} {v.model}</h3>
+          <p className="text-xs text-gray-500 mb-2">{v.year} · {v.seat_count} seats · {v.vehicle_type}</p>
+          <div className="mb-3">
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-gray-500">AI Match Score</span>
+              <span className="font-bold text-blue-600">{rec.score}/100</span>
+            </div>
+            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full transition-all duration-1000 ${rec.score >= 80 ? 'bg-emerald-500' : rec.score >= 60 ? 'bg-blue-500' : 'bg-amber-400'}`}
+                style={{ width: `${rec.score}%` }} />
+            </div>
           </div>
+          {rec.reasons.length > 0 && (
+            <div className="bg-blue-50 rounded-xl p-2.5 mb-3">
+              <p className="text-xs font-semibold text-blue-800 mb-1">Why this vehicle?</p>
+              <p className="text-xs text-blue-700 leading-relaxed">{rec.reasons.slice(0, 2).join(' ')}</p>
+            </div>
+          )}
         </div>
       </div>
-      <div className="p-4">
-        <h3 className="font-bold text-gray-900">{v.brand} {v.model}</h3>
-        <p className="text-xs text-gray-500 mb-2">{v.year} · {v.seat_count} seats · {v.vehicle_type}</p>
-        <div className="mb-3">
-          <div className="flex justify-between text-xs mb-1">
-            <span className="text-gray-500">AI Match Score</span>
-            <span className="font-bold text-blue-600">{rec.score}/100</span>
-          </div>
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all duration-1000 ${rec.score >= 80 ? 'bg-emerald-500' : rec.score >= 60 ? 'bg-blue-500' : 'bg-amber-400'}`}
-              style={{ width: `${rec.score}%` }} />
-          </div>
+      <div className="p-4 pt-0">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onSelfDrive}
+            className="flex items-center justify-center space-x-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
+          >
+            <Shield className="h-3.5 w-3.5" />
+            <span>Self-Drive</span>
+          </button>
+          <button
+            type="button"
+            onClick={onBook}
+            className="flex items-center justify-center space-x-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
+          >
+            <span>With Driver</span>
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
         </div>
-        {rec.reasons.length > 0 && (
-          <div className="bg-blue-50 rounded-xl p-2.5 mb-3">
-            <p className="text-xs font-semibold text-blue-800 mb-1">Why this vehicle?</p>
-            <p className="text-xs text-blue-700 leading-relaxed">{rec.reasons.slice(0, 2).join(' ')}</p>
-          </div>
-        )}
-        <button onClick={onBook}
-          className="w-full flex items-center justify-center space-x-1.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-colors">
-          <span>Book Now</span><ChevronRight className="h-4 w-4" />
-        </button>
       </div>
     </div>
   );
@@ -267,7 +342,7 @@ function SkeletonCard() {
 export default function VehicleListingPage() {
   const navigate = useNavigate();
   const routerLocation = useRouterLocation();
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user } = useAuth();
   const { coords: gpsCoords, permission, requestPermission } = useGPS();
 
   // ── Mode ───────────────────────────────────────────────────────────────────
@@ -383,11 +458,18 @@ export default function VehicleListingPage() {
         per_page: perPage,
       };
       const { data, count } = await VehicleService.list(filters);
-      setVehicles(data);
-      setTotal(count);
+      const cleanData = user ? data.filter(v => {
+        const ownerId = (v as any).owner_id || (v as any).vehicle_owner_profile?.user_id;
+        const ownerEmail = (v as any).owner?.email || (v as any).vehicle_owner_profile?.user?.email;
+        if (ownerId && ownerId === user.id) return false;
+        if (ownerEmail && user.email && ownerEmail.toLowerCase() === user.email.toLowerCase()) return false;
+        return true;
+      }) : data;
+      setVehicles(cleanData);
+      setTotal(cleanData.length);
     } catch { setVehicles([]); setTotal(0); }
     finally { setLoading(false); }
-  }, [search, vehicleType, vehicleModel, nearestTown, minSeats, fuelType, transmission, hasAc, withDriver, budgetMode, budgetPerDay, budgetPerKm, sort]);
+  }, [search, vehicleType, vehicleModel, nearestTown, minSeats, fuelType, transmission, hasAc, withDriver, budgetMode, budgetPerDay, budgetPerKm, sort, user]);
 
   React.useEffect(() => { if (searchMode === 'browse') loadVehicles(page); }, [loadVehicles, page, searchMode]);
 
@@ -420,6 +502,13 @@ export default function VehicleListingPage() {
         vehicle_model: smartVehicleModel || undefined,
         per_page: 60,
       });
+      const availableForUser = user ? allVehicles.filter(v => {
+        const ownerId = (v as any).owner_id || (v as any).vehicle_owner_profile?.user_id;
+        const ownerEmail = (v as any).owner?.email || (v as any).vehicle_owner_profile?.user?.email;
+        if (ownerId && ownerId === user.id) return false;
+        if (ownerEmail && user.email && ownerEmail.toLowerCase() === user.email.toLowerCase()) return false;
+        return true;
+      }) : allVehicles;
       const recs = await AIService.getVehicleRecommendations({
         passenger_count: smartPassengers,
         budget: effectiveBudget,
@@ -428,7 +517,7 @@ export default function VehicleListingPage() {
         vehicle_type: smartVehicleType || undefined,
         pickup_location: smartPickup,
         destination: smartDest,
-      }, allVehicles);
+      }, availableForUser);
       setAiRecs(recs);
       setAiRan(true);
     } catch { setAiRecs([]); setAiRan(true); }
@@ -708,8 +797,13 @@ export default function VehicleListingPage() {
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                 {vehicles.map(v => (
-                  <VehicleCard key={v.id} vehicle={v}
-                    onBook={() => navigate(isLoggedIn ? `/vehicles/book/${v.id}` : '/login')} />
+                  <VehicleCard
+                    key={v.id}
+                    vehicle={v}
+                    onBook={() => navigate(isLoggedIn ? `/vehicles/book/${v.id}` : '/login')}
+                    onSelfDrive={() => navigate(isLoggedIn ? `/customer/rentals/apply?vehicle_id=${v.id}` : '/login')}
+                    onViewDetails={() => navigate(`/vehicles/${v.id}`)}
+                  />
                 ))}
               </div>
               <Pagination currentPage={page} totalPages={Math.ceil(total / perPage)} onPageChange={setPage} />
@@ -938,8 +1032,14 @@ export default function VehicleListingPage() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                   {aiRecs.map((rec, i) => (
-                    <AIRecommendationCard key={rec.vehicle.id} rec={rec} rank={i + 1}
-                      onBook={() => navigate(isLoggedIn ? `/vehicles/book/${rec.vehicle.id}` : '/login')} />
+                    <AIRecommendationCard
+                      key={rec.vehicle.id}
+                      rec={rec}
+                      rank={i + 1}
+                      onBook={() => navigate(isLoggedIn ? `/vehicles/book/${rec.vehicle.id}` : '/login')}
+                      onSelfDrive={() => navigate(isLoggedIn ? `/customer/rentals/apply?vehicle_id=${rec.vehicle.id}` : '/login')}
+                      onViewDetails={() => navigate(`/vehicles/${rec.vehicle.id}`)}
+                    />
                   ))}
                 </div>
               )}

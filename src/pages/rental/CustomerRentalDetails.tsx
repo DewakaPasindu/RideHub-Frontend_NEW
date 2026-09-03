@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Shield, Clock, FileText, CheckCircle, Car, AlertTriangle, Eye, Gauge, Fuel } from 'lucide-react';
-import { RentalService, RentalApplication } from '../../services/api/rental.service';
+import { Shield, Clock, FileText, CheckCircle, Car, AlertTriangle, Eye, Gauge, Fuel, MapPin, X, ExternalLink, ChevronLeft, XCircle } from 'lucide-react';
+import { RentalService, RentalApplication, RentalFinalSummary } from '../../services/api/rental.service';
+import { tokenStore } from '../../services/api/client';
 import HandoverConfirmation from '../../components/rental/HandoverConfirmation';
 import ConditionComparison from '../../components/rental/ConditionComparison';
+import FinalRentalSummaryCard from '../../components/rental/FinalRentalSummaryCard';
+import RentalPriceEstimateCard from '../../components/rental/RentalPriceEstimateCard';
+import RentalReviewModal from '../../components/rental/RentalReviewModal';
 
 const DAMAGE_LABELS: Record<string, string> = {
   front: 'Front Bumper / Grille',
@@ -24,6 +28,44 @@ export default function CustomerRentalDetails() {
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [comparison, setComparison] = useState<any | null>(null);
+  const [summaryData, setSummaryData] = useState<RentalFinalSummary | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ url: string; title: string; blobUrl?: string | null; loading?: boolean } | null>(null);
+
+  const handlePreviewDocument = async (doc: any) => {
+    const token = tokenStore.get() || localStorage.getItem('access_token') || '';
+    const authenticatedUrl = token
+      ? (doc.url.includes('?') ? `${doc.url}&token=${encodeURIComponent(token)}` : `${doc.url}?token=${encodeURIComponent(token)}`)
+      : doc.url;
+
+    setPreviewDoc({
+      url: authenticatedUrl,
+      title: doc.document_type.replace(/_/g, ' '),
+      blobUrl: null,
+      loading: true,
+    });
+
+    try {
+      const res = await fetch(doc.url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        setPreviewDoc(prev => (prev ? { ...prev, blobUrl: objectUrl, loading: false } : null));
+      } else {
+        setPreviewDoc(prev => (prev ? { ...prev, blobUrl: authenticatedUrl, loading: false } : null));
+      }
+    } catch {
+      setPreviewDoc(prev => (prev ? { ...prev, blobUrl: authenticatedUrl, loading: false } : null));
+    }
+  };
+
+  const closePreview = () => {
+    if (previewDoc?.blobUrl && previewDoc.blobUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(previewDoc.blobUrl);
+    }
+    setPreviewDoc(null);
+  };
 
   // Edit/Correction fields
   const [moreInfoData, setMoreInfoData] = useState({
@@ -46,9 +88,13 @@ export default function CustomerRentalDetails() {
         driving_license_number: data.driving_license_number
       });
 
-      if (data.status === 'completed') {
-        const comp = await RentalService.getComparison(id);
-        setComparison(comp);
+      if (data.status === 'returned' || data.status === 'completed') {
+        const [comp, sum] = await Promise.all([
+          RentalService.getComparison(id).catch(() => null),
+          RentalService.getSummary(id).catch(() => null),
+        ]);
+        if (comp) setComparison(comp);
+        if (sum?.summary) setSummaryData(sum.summary);
       }
     } catch (err: any) {
       console.error(err);
@@ -94,6 +140,24 @@ export default function CustomerRentalDetails() {
     }
   };
 
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+
+  const handleCancelApplication = async () => {
+    if (!id) return;
+    setActionLoading(true);
+    setError(null);
+    try {
+      const updated = await RentalService.cancelApplication(id, cancelReason);
+      setApp(updated);
+      setShowCancelModal(false);
+    } catch (err: any) {
+      setError(err?.message || "Failed to cancel rental application.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-20 text-center text-slate-500">
@@ -113,7 +177,18 @@ export default function CustomerRentalDetails() {
   const preCondition = app.conditions?.find(c => c.inspection_stage === 'pre_rental');
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-12">
+    <div className="max-w-4xl mx-auto px-4 py-10">
+      {/* Breadcrumb back link */}
+      <div className="mb-5">
+        <Link
+          to="/customer/rentals"
+          className="inline-flex items-center space-x-1.5 text-xs font-bold text-slate-500 hover:text-emerald-700 bg-white border border-slate-200 hover:border-emerald-300 px-3.5 py-1.5 rounded-xl transition-all shadow-sm"
+        >
+          <ChevronLeft className="h-4 w-4 text-emerald-600" />
+          <span>&larr; Back to My Rentals</span>
+        </Link>
+      </div>
+
       {/* Header card */}
       <div className="bg-slate-900 text-white rounded-3xl p-6 md:p-8 shadow-xl mb-8 flex flex-col md:flex-row md:items-center md:justify-between gap-6">
         <div>
@@ -125,23 +200,73 @@ export default function CustomerRentalDetails() {
             Rental Period: {new Date(app.start_at).toLocaleDateString()} &rarr; {new Date(app.end_at).toLocaleDateString()}
           </p>
         </div>
-        <div className="flex flex-col items-start md:items-end">
-          <span className="text-xs text-slate-400 font-semibold">Verification Status</span>
-          <span className={`mt-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
-            app.status === 'completed' ? 'bg-green-600 text-white' :
-            app.status === 'active' ? 'bg-blue-600 text-white' :
-            app.status === 'owner_approved' ? 'bg-emerald-600 text-white' :
-            app.status === 'more_information_required' ? 'bg-amber-500 text-slate-900' :
-            'bg-slate-700 text-slate-300'
-          }`}>
-            {app.status.replace(/_/g, ' ')}
-          </span>
+        <div className="flex flex-col items-start md:items-end space-y-2">
+          <div className="text-left md:text-right">
+            <span className="text-xs text-slate-400 font-semibold block">Verification Status</span>
+            <span className={`mt-1.5 inline-block px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+              app.status === 'completed' ? 'bg-green-600 text-white' :
+              app.status === 'active' ? 'bg-blue-600 text-white' :
+              app.status === 'owner_approved' ? 'bg-emerald-600 text-white' :
+              app.status === 'more_information_required' ? 'bg-amber-500 text-slate-900' :
+              app.status === 'cancelled' ? 'bg-red-600 text-white' :
+              'bg-slate-700 text-slate-300'
+            }`}>
+              {app.status.replace(/_/g, ' ')}
+            </span>
+          </div>
+
+          {['submitted', 'more_information_required', 'owner_approved'].includes(app.status) && (
+            <button
+              type="button"
+              onClick={() => setShowCancelModal(true)}
+              className="text-xs font-bold text-red-400 hover:text-white hover:bg-red-600 px-3 py-1.5 rounded-xl border border-red-500/40 transition-all flex items-center space-x-1 shadow-sm mt-1"
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              <span>Cancel Request</span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Cancelled Banner */}
+      {app.status === 'cancelled' && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-5 mb-8 flex items-start space-x-3 text-red-800 shadow-sm animate-in fade-in">
+          <XCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-bold text-red-900">Rental Request Cancelled</h4>
+            <p className="text-xs text-red-700 mt-0.5">
+              This rental application was cancelled. Reason: <strong>{app.more_info_reason || 'Cancelled by customer'}</strong>.
+            </p>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-4 rounded-xl mb-6">
           {error}
+        </div>
+      )}
+
+      {/* Approximate Pricing & Mileage Allowance (100 KM/Day Rule) */}
+      {['draft', 'submitted', 'under_review', 'more_information_required', 'owner_approved'].includes(app.status) && (
+        <div className="mb-8">
+          <RentalPriceEstimateCard
+            estimate={{
+              vehicle_id: app.vehicle_id,
+              vehicle_uuid: app.vehicle?.uuid || '',
+              make: app.vehicle?.make || '',
+              model: app.vehicle?.model || '',
+              daily_rate: app.daily_rate ?? app.vehicle?.price_per_day ?? 0,
+              estimated_days: app.estimated_days ?? 1,
+              included_km_per_day: app.included_km_per_day ?? 100,
+              estimated_included_km: app.estimated_included_km ?? (app.estimated_days ?? 1) * 100,
+              extra_km_rate: app.extra_km_rate ?? app.vehicle?.extra_km_rate ?? 50,
+              estimated_base_amount: app.estimated_base_amount ?? 0,
+              estimated_total_amount: app.estimated_total_amount ?? 0,
+              disclaimer: 'Approximate price only. Final rental price will be calculated after vehicle return using the actual odometer reading.',
+            }}
+            vehicleName={app.vehicle ? `${app.vehicle.make} ${app.vehicle.model}` : undefined}
+          />
         </div>
       )}
 
@@ -242,9 +367,19 @@ export default function CustomerRentalDetails() {
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">Inspection Photos</span>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {preCondition.photos?.map((ph) => (
-                    <div key={ph.id} className="relative aspect-video rounded-lg overflow-hidden border border-slate-200">
-                      <img src={ph.url} alt={ph.photo_type} className="w-full h-full object-cover" />
-                      <span className="absolute bottom-1 left-1 bg-black/70 text-white text-[8px] px-1 py-0.5 rounded capitalize">
+                    <div
+                      key={ph.id}
+                      onClick={() => setPreviewDoc({ url: ph.url, title: `${ph.photo_type} Inspection Photo`, blobUrl: ph.url })}
+                      className="relative aspect-video rounded-lg overflow-hidden border border-slate-200 cursor-pointer hover:opacity-90 transition-all bg-slate-100 group shadow-sm hover:shadow-md"
+                      title="Click to zoom photo"
+                    >
+                      <img
+                        src={ph.url}
+                        alt={ph.photo_type}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        loading="lazy"
+                      />
+                      <span className="absolute bottom-1 left-1 bg-black/75 text-white text-[8px] font-bold px-1.5 py-0.5 rounded capitalize">
                         {ph.photo_type}
                       </span>
                     </div>
@@ -285,11 +420,58 @@ export default function CustomerRentalDetails() {
         </div>
       )}
 
-      {/* Case 4: Completed Comparison Report */}
-      {app.status === 'completed' && comparison && (
-        <div className="space-y-6 mb-8">
-          <h3 className="text-lg font-black text-slate-800">Rental Completed — Verification Summary</h3>
-          <ConditionComparison comparison={comparison} />
+      {/* Case 4: Final Rental Summary & Mandatory Customer Review */}
+      {(app.status === 'returned' || app.status === 'completed') && (
+        <div className="space-y-8 mb-8">
+          {summaryData ? (
+            <FinalRentalSummaryCard summary={summaryData} role="customer" />
+          ) : (
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-center text-xs text-slate-500 animate-pulse">
+              Loading final rental calculation summary...
+            </div>
+          )}
+
+          {/* Mandatory Customer Review */}
+          {!app.has_reviewed && !app.review ? (
+            <RentalReviewModal
+              rentalUuid={app.uuid}
+              vehicleName={app.vehicle ? `${app.vehicle.make} ${app.vehicle.model}` : 'Your Rented Vehicle'}
+              onSuccess={() => loadData()}
+            />
+          ) : (
+            <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-6 text-xs text-emerald-950">
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-extrabold uppercase tracking-wider text-[11px] text-emerald-800 flex items-center space-x-1.5">
+                  <CheckCircle className="h-4 w-4 text-emerald-600" />
+                  <span>Your Submitted Rental Review</span>
+                </span>
+                <span className="text-[10px] text-emerald-700">{app.review?.created_at}</span>
+              </div>
+              <div className="flex items-center space-x-1 mb-2">
+                {[...Array(5)].map((_, i) => (
+                  <span
+                    key={i}
+                    className={`text-sm ${
+                      i < (app.review?.rating || 5) ? 'text-amber-400' : 'text-slate-200'
+                    }`}
+                  >
+                    ★
+                  </span>
+                ))}
+                <span className="font-bold ml-1 text-slate-700">({app.review?.rating}/5 Stars)</span>
+              </div>
+              <p className="italic text-slate-700 bg-white/70 p-3 rounded-xl border border-emerald-100">
+                "{app.review?.comment}"
+              </p>
+            </div>
+          )}
+
+          {comparison && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-black text-slate-800">Condition Comparison Report</h3>
+              <ConditionComparison comparison={comparison} />
+            </div>
+          )}
         </div>
       )}
 
@@ -305,15 +487,15 @@ export default function CustomerRentalDetails() {
                   <p className="text-[10px] font-bold text-slate-700 capitalize">{doc.document_type.replace(/_/g, ' ')}</p>
                   <p className="text-[8px] text-slate-400">Uploaded: {new Date(doc.uploaded_at).toLocaleDateString()}</p>
                 </div>
-                <a
-                  href={doc.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="p-1.5 bg-white text-slate-500 hover:text-blue-600 rounded-lg border border-slate-150"
+                <button
+                  type="button"
+                  onClick={() => handlePreviewDocument(doc)}
+                  className="p-1.5 bg-white text-slate-600 hover:text-blue-600 rounded-lg border border-slate-200 flex items-center space-x-1 shadow-sm transition-colors"
                   title="View Secure Document"
                 >
                   <Eye className="h-3.5 w-3.5" />
-                </a>
+                  <span className="text-[10px] font-bold">View</span>
+                </button>
               </div>
             ))}
           </div>
@@ -349,6 +531,99 @@ export default function CustomerRentalDetails() {
           </div>
         </div>
       </div>
+
+      {/* Document Preview Modal */}
+      {previewDoc && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in duration-200">
+            <div className="p-4 border-b flex items-center justify-between bg-slate-50">
+              <h4 className="text-sm font-bold text-slate-800 capitalize">{previewDoc.title}</h4>
+              <div className="flex items-center space-x-2">
+                <a
+                  href={previewDoc.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-blue-600 hover:underline flex items-center space-x-1 px-2.5 py-1 border border-blue-200 rounded-lg bg-blue-50 font-semibold"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  <span>Open in New Tab</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={closePreview}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div className="p-4 overflow-auto flex-1 flex items-center justify-center bg-slate-900/5 min-h-[320px]">
+              {previewDoc.loading ? (
+                <div className="flex flex-col items-center justify-center py-12 space-y-3">
+                  <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs text-slate-500 font-semibold">Loading verification document...</span>
+                </div>
+              ) : (
+                <img
+                  src={previewDoc.blobUrl || previewDoc.url}
+                  alt={previewDoc.title}
+                  className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-sm border border-slate-200 bg-white"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Rental Confirmation Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="p-3 bg-red-100 text-red-600 rounded-xl">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Cancel Rental Request?</h3>
+                <p className="text-xs text-slate-500">This action will cancel the rental and notify the vehicle owner.</p>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                Reason for cancellation (optional):
+              </label>
+              <textarea
+                value={cancelReason}
+                onChange={e => setCancelReason(e.target.value)}
+                placeholder="E.g., Change of travel plans, no longer needed..."
+                className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:outline-none resize-none"
+                rows={3}
+              />
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowCancelModal(false)}
+                disabled={actionLoading}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                Keep Request
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelApplication}
+                disabled={actionLoading}
+                className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors shadow-sm disabled:opacity-50 flex items-center space-x-1.5"
+              >
+                {actionLoading && <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                <span>Yes, Cancel Rental</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

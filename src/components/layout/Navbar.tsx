@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, X, Car, User, UserPlus, Calendar, ChevronDown, Zap, Target, MessageSquare, Shield, TrendingUp, Navigation, Users } from 'lucide-react';
+import { Menu, X, Car, User, UserPlus, Calendar, ChevronDown, Zap, Target, MessageSquare, Shield, TrendingUp, Navigation, Users, Wallet } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import GPSStatusIndicator from '../location/GPSStatusIndicator';
@@ -7,7 +7,7 @@ import GPSStatusIndicator from '../location/GPSStatusIndicator';
 export default function Navbar() {
   const [isOpen, setIsOpen] = React.useState(false);
   const [toolsOpen, setToolsOpen] = React.useState(false);
-  const { user, isLoggedIn, logout } = useAuth();
+  const { user, isLoggedIn, logout, isAdmin } = useAuth();
   const location = useLocation();
   const toolsRef = React.useRef<HTMLDivElement>(null);
 
@@ -119,13 +119,28 @@ export default function Navbar() {
             <div className="flex items-center space-x-1.5 border-l border-gray-200 pl-3 ml-1">
               {isLoggedIn ? (
                 <>
+                  {isAdmin() && (
+                    <Link
+                      to="/admin/dashboard"
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider bg-slate-950 text-emerald-400 border border-emerald-500/40 shadow-sm hover:bg-slate-900 hover:border-emerald-400 transition-all mr-1"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>Operations Center</span>
+                    </Link>
+                  )}
                   {user?.isDriver && (
                     <Link to="/availability" className={`flex items-center space-x-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${location.pathname === '/availability' ? 'text-blue-600 bg-blue-50' : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'}`}>
                       <Calendar className="h-4 w-4" /><span>Availability</span>
                     </Link>
                   )}
-                  <Link to="/owner/rental-requests" className={`flex items-center space-x-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${location.pathname === '/owner/rental-requests' ? 'text-blue-600 bg-blue-50' : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'}`}>
+                  <Link to="/customer/rentals" className={`flex items-center space-x-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${location.pathname.startsWith('/customer/rentals') ? 'text-emerald-600 bg-emerald-50' : 'text-gray-600 hover:text-emerald-600 hover:bg-gray-50'}`}>
+                    <Shield className="h-4 w-4 text-emerald-600" /><span>My Rentals</span>
+                  </Link>
+                  <Link to="/owner/rental-requests" className={`flex items-center space-x-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${location.pathname.startsWith('/owner/rental-requests') ? 'text-blue-600 bg-blue-50' : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'}`}>
                     <Car className="h-4 w-4" /><span>Owner Requests</span>
+                  </Link>
+                  <Link to="/professional" className={`flex items-center space-x-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${location.pathname === '/professional' || location.pathname === '/earnings' ? 'text-emerald-600 bg-emerald-50' : 'text-gray-600 hover:text-emerald-600 hover:bg-gray-50'}`}>
+                    <Wallet className="h-4 w-4 text-emerald-600" /><span>Earnings</span>
                   </Link>
                   <Link to="/bookings" className={`flex items-center space-x-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${location.pathname === '/bookings' ? 'text-blue-600 bg-blue-50' : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'}`}>
                     <Calendar className="h-4 w-4" /><span>Bookings</span>
@@ -144,6 +159,9 @@ export default function Navbar() {
                 </>
               ) : (
                 <>
+                  <Link to="/admin/login" className="text-xs font-bold text-slate-500 hover:text-slate-900 px-2 py-1.5 transition-colors">
+                    Admin Portal
+                  </Link>
                   <Link to="/register" className="flex items-center space-x-1 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:text-blue-600 hover:bg-gray-50 transition-colors">
                     <UserPlus className="h-4 w-4" /><span>Register</span>
                   </Link>
@@ -196,6 +214,9 @@ export default function Navbar() {
             {isLoggedIn ? (
               <div className="border-t border-gray-100 pt-2">
                 {user?.isDriver && <Link to="/availability" className="block px-3 py-2 text-sm text-gray-700 hover:text-blue-600 rounded-lg">Availability</Link>}
+                <Link to="/customer/rentals" className="block px-3 py-2 text-sm font-semibold text-emerald-700 hover:text-emerald-800 rounded-lg">🛡️ My Self-Drive Rentals</Link>
+                <Link to="/owner/rental-requests" className="block px-3 py-2 text-sm text-gray-700 hover:text-blue-600 rounded-lg">Owner Requests</Link>
+                <Link to="/professional" className="block px-3 py-2 text-sm font-semibold text-emerald-700 hover:text-emerald-800 rounded-lg">💰 Professional Earnings</Link>
                 <Link to="/bookings" className="block px-3 py-2 text-sm text-gray-700 hover:text-blue-600 rounded-lg">My Bookings</Link>
                 <Link to="/profile" className="block px-3 py-2 text-sm text-gray-700 hover:text-blue-600 rounded-lg">Profile</Link>
                 <button onClick={handleLogout} className="block w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg mt-1">Logout</button>

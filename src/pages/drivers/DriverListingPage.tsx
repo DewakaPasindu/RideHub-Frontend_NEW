@@ -296,7 +296,7 @@ function SkeletonCard() {
 export default function DriverListingPage() {
   const navigate = useNavigate();
   const routerLocation = useRouterLocation();
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user } = useAuth();
   const { coords: gpsCoords, permission, requestPermission } = useGPS();
 
   const [searchMode, setSearchMode] = React.useState<SearchMode>('browse');
@@ -388,11 +388,18 @@ export default function DriverListingPage() {
         per_page: perPage,
       };
       const { data, count } = await DriverService.list(filters);
-      setDrivers(data);
-      setTotal(count);
+      const cleanData = user ? data.filter(d => {
+        if (d.user_id && d.user_id === user.id) return false;
+        if ((d as any).user?.id && (d as any).user?.id === user.id) return false;
+        if ((d as any).user?.email && user.email && (d as any).user?.email.toLowerCase() === user.email.toLowerCase()) return false;
+        if ((d as any).email && user.email && (d as any).email.toLowerCase() === user.email.toLowerCase()) return false;
+        return true;
+      }) : data;
+      setDrivers(cleanData);
+      setTotal(cleanData.length);
     } catch { setDrivers([]); setTotal(0); }
     finally { setLoading(false); }
-  }, [search, minExperience, minRating, nearestTown, specialty, availabilityStatus, licenseType, budgetPerDay, browseLocation, sort]);
+  }, [search, minExperience, minRating, nearestTown, specialty, availabilityStatus, licenseType, budgetPerDay, browseLocation, sort, user]);
 
   React.useEffect(() => { if (searchMode === 'browse') loadDrivers(page); }, [loadDrivers, page, searchMode]);
 
@@ -415,10 +422,17 @@ export default function DriverListingPage() {
         specialty: smartSpecialty || undefined,
         per_page: 60,
       });
+      const availableDrivers = user ? allDrivers.filter(d => {
+        if (d.user_id && d.user_id === user.id) return false;
+        if ((d as any).user?.id && (d as any).user?.id === user.id) return false;
+        if ((d as any).user?.email && user.email && (d as any).user?.email.toLowerCase() === user.email.toLowerCase()) return false;
+        if ((d as any).email && user.email && (d as any).email.toLowerCase() === user.email.toLowerCase()) return false;
+        return true;
+      }) : allDrivers;
       const matches = await AIService.getDriverMatches({
         pickup_location: smartPickup,
         distance_km: distanceKm ?? 0,
-      }, allDrivers);
+      }, availableDrivers);
       setDriverMatches(matches);
       setAiRan(true);
     } catch { setDriverMatches([]); setAiRan(true); }

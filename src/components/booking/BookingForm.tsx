@@ -38,12 +38,20 @@ export default function BookingForm({ type, targetId, targetName, pricePerDay, o
 
   React.useEffect(() => {
     if (formData.startDate && formData.endDate && pricePerDay) {
-      const start = new Date(formData.startDate);
-      const end = new Date(formData.endDate);
-      const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-      setTotalAmount(days * pricePerDay);
+      const start = new Date(`${formData.startDate}T${formData.startTime || '09:00'}:00`);
+      const end = new Date(`${formData.endDate}T${formData.endTime || '18:00'}:00`);
+      const diffMs = end.getTime() - start.getTime();
+      const hours = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0;
+      if (hours <= 24) {
+        setTotalAmount(Math.round(pricePerDay));
+      } else {
+        const fullDays = Math.floor(hours / 24);
+        const extraHours = hours - (fullDays * 24);
+        const hourlyRate = pricePerDay / 24;
+        setTotalAmount(Math.round((fullDays * pricePerDay) + (extraHours * hourlyRate)));
+      }
     }
-  }, [formData.startDate, formData.endDate, pricePerDay]);
+  }, [formData.startDate, formData.endDate, formData.startTime, formData.endTime, pricePerDay]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

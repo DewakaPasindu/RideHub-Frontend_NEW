@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { User as UserIcon, Car, Users, Edit, Eye, Trash2, Save, X, Calendar, Upload } from 'lucide-react';
+import { User as UserIcon, Car, Users, Edit, Eye, Trash2, Save, X, Calendar, Upload, Wallet, TrendingUp, Sparkles, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import api from '../services/api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { AuthService } from '../services/api/auth.service';
+import { ProfessionalService } from '../services/api/professional.service';
+import type { ProfessionalCapabilities, ProfessionalOverview } from '../services/api/types';
+import { formatLKR } from '../components/professional/EarningsSummaryCards';
 import OwnerAvailabilityCalendar from '../components/booking/OwnerAvailabilityCalendar';
 
 interface UserVehicle {
@@ -27,7 +31,7 @@ interface UserDriverApplication {
 }
 
 export default function UserProfile() {
-  const { user: authUser } = useAuth();
+  const { user: authUser, isAdmin, isSuperAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [showAvailabilityCalendar, setShowAvailabilityCalendar] = useState<{
@@ -57,6 +61,9 @@ export default function UserProfile() {
   const [userVehicles, setUserVehicles] = useState<UserVehicle[]>([]);
   const [userDriverApplications, setUserDriverApplications] = useState<UserDriverApplication[]>([]);
   
+  const [professionalCaps, setProfessionalCaps] = useState<ProfessionalCapabilities | null>(null);
+  const [professionalOverview, setProfessionalOverview] = useState<ProfessionalOverview | null>(null);
+
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState('');
   
@@ -69,6 +76,18 @@ export default function UserProfile() {
       setError('');
       
       const u = await AuthService.me();
+
+      // Load professional capabilities & overview
+      try {
+        const caps = await ProfessionalService.getCapabilities();
+        setProfessionalCaps(caps);
+        if (caps.has_professional_access) {
+          const ov = await ProfessionalService.getOverview();
+          setProfessionalOverview(ov);
+        }
+      } catch (e) {
+        console.log("Could not load professional capabilities", e);
+      }
       
       let cp = null;
       try {
@@ -236,15 +255,56 @@ export default function UserProfile() {
     );
   }
 
+  const roleLabel = isSuperAdmin?.() || authUser?.role === 'superadmin' || authUser?.roles?.includes('Super Admin')
+    ? 'Super Admin'
+    : isAdmin?.() || authUser?.role === 'admin' || authUser?.roles?.includes('Admin')
+    ? 'Administrator'
+    : authUser?.isDriver || authUser?.role === 'driver' || authUser?.roles?.includes('Driver')
+    ? 'Driver'
+    : authUser?.roles?.includes('Vehicle Owner')
+    ? 'Vehicle Owner'
+    : 'Customer';
+
+  const isSystemAdmin = isAdmin?.() || authUser?.isAdmin || authUser?.role === 'admin' || authUser?.role === 'superadmin';
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="flex items-center mb-8">
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+      <div className="flex items-center">
         <UserIcon className="h-8 w-8 text-blue-600 mr-3" />
         <h1 className="text-3xl font-bold text-gray-900">User Profile</h1>
       </div>
 
-      {error && <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>}
-      {success && <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm">{success}</div>}
+      {/* Admin Access Banner */}
+      {isSystemAdmin && (
+        <div className="p-5 rounded-2xl bg-slate-950 border border-emerald-500/30 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-black text-sm uppercase tracking-wider text-white">Administrator Access Active</h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                  Command Center
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                You are authenticated as an administrator. Access live telemetry, verification hubs, disputes, and financial controls.
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/admin/dashboard"
+            className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-500/20 whitespace-nowrap self-start sm:self-auto"
+          >
+            <span>Open Admin Operations Center</span>
+            <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+      )}
+
+      {error && <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{error}</div>}
+      {success && <div className="p-4 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm">{success}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Profile Details Card */}
@@ -267,8 +327,12 @@ export default function UserProfile() {
                 )}
               </div>
               <h2 className="mt-4 font-bold text-gray-900 text-lg">{userData.first_name} {userData.last_name}</h2>
-              <span className="text-xs text-blue-600 font-medium capitalize bg-blue-50 px-2 py-0.5 rounded-full mt-1">
-                {authUser?.role || 'Customer'}
+              <span className={`text-xs font-bold capitalize px-2.5 py-0.5 rounded-full mt-1 border ${
+                isSystemAdmin
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-blue-50 text-blue-600 border-blue-100'
+              }`}>
+                {roleLabel}
               </span>
             </div>
 
@@ -381,6 +445,86 @@ export default function UserProfile() {
               </div>
             </div>
           </div>
+
+          {/* RideHub Professional Card */}
+          {professionalCaps?.has_professional_access ? (
+            <div className="bg-gradient-to-br from-emerald-900 via-teal-900 to-gray-900 rounded-2xl p-5 text-white shadow-md space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-white/10 backdrop-blur-sm text-emerald-400">
+                    <Wallet className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm">Professional Status</h3>
+                    <span className="text-[11px] text-emerald-200">
+                      {professionalCaps.is_combined
+                        ? 'Driver & Fleet Owner'
+                        : professionalCaps.is_driver
+                        ? 'Verified Driver'
+                        : 'Vehicle Fleet Owner'}
+                    </span>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/30 text-emerald-300 border border-emerald-500/40">
+                  Approved
+                </span>
+              </div>
+
+              {professionalOverview && (
+                <div className="p-3.5 rounded-xl bg-white/10 backdrop-blur-sm space-y-2 text-xs">
+                  <div className="flex justify-between text-emerald-100">
+                    <span>Lifetime Gross:</span>
+                    <span className="font-bold text-white">{formatLKR(professionalOverview.lifetime.gross)}</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-100">
+                    <span>10% Platform Fee:</span>
+                    <span className="font-bold text-amber-300">-{formatLKR(professionalOverview.lifetime.platform_fee)}</span>
+                  </div>
+                  <div className="pt-1.5 border-t border-white/10 flex justify-between font-bold text-sm">
+                    <span className="text-emerald-200">Net Take-Home:</span>
+                    <span className="text-emerald-400">{formatLKR(professionalOverview.lifetime.net)}</span>
+                  </div>
+                </div>
+              )}
+
+              <Link
+                to="/professional"
+                className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow"
+              >
+                <span>Open Earnings Dashboard</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-amber-50 text-amber-600">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-sm">Become a Professional</h3>
+                  <p className="text-[11px] text-gray-500">Earn with RideHub</p>
+                </div>
+              </div>
+              <p className="text-xs text-gray-600">
+                Drive passengers or list your vehicles to start earning with our 10% platform fee and automated statements.
+              </p>
+              <div className="flex gap-2 pt-1">
+                <Link
+                  to="/drivers/register"
+                  className="flex-1 py-2 px-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-center text-xs transition-colors"
+                >
+                  Join as Driver
+                </Link>
+                <Link
+                  to="/vehicles/register"
+                  className="flex-1 py-2 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-center text-xs transition-colors"
+                >
+                  List Vehicle
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Vehicles and Driver Status Lists */}

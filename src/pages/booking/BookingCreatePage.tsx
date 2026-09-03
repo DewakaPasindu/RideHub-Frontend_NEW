@@ -362,8 +362,8 @@ function ServiceBadge({ bookingType }: { bookingType: 'vehicle' | 'driver' }) {
       <div className="flex items-center space-x-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2 mb-6 w-fit">
         <Car className="h-5 w-5 text-blue-600" />
         <div>
-          <p className="text-xs font-bold text-blue-800 uppercase tracking-wide">Vehicle Rental</p>
-          <p className="text-xs text-blue-600">With optional driver assignment</p>
+          <p className="text-xs font-bold text-blue-800 uppercase tracking-wide">Vehicle with Driver</p>
+          <p className="text-xs text-blue-600">Professional driver provided with vehicle</p>
         </div>
       </div>
     );
@@ -381,10 +381,9 @@ function ServiceBadge({ bookingType }: { bookingType: 'vehicle' | 'driver' }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-type Step = 'location' | 'schedule' | 'driver' | 'summary';
+type Step = 'location' | 'schedule' | 'summary';
 
-const VH_STEPS = ['Location', 'Schedule', 'Driver', 'Confirm'];
-const DR_STEPS = ['Location', 'Schedule', 'Confirm'];
+const BOOKING_STEPS = ['Location', 'Schedule', 'Confirm'];
 
 const DRIVER_PLACEHOLDER = 'https://images.unsplash.com/photo-1633332755192-727a05c4013d?w=120&q=80';
 const VEHICLE_PLACEHOLDER = 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=120&q=80';
@@ -400,10 +399,10 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
   const [loadingTarget, setLoadingTarget] = React.useState(true);
   const [targetError, setTargetError] = React.useState('');
 
-  // ── Navigation ─────────────────────────────────────────────────────────────
+  // ── Navigation (3 Steps: Location -> Schedule -> Confirm) ─────────────────
   const [step, setStep] = React.useState<Step>('location');
-  const steps = bookingType === 'vehicle' ? VH_STEPS : DR_STEPS;
-  const stepIndex = { location: 0, schedule: 1, driver: 2, summary: bookingType === 'vehicle' ? 3 : 2 }[step];
+  const steps = BOOKING_STEPS;
+  const stepIndex = { location: 0, schedule: 1, summary: 2 }[step] ?? 0;
 
   // ── Location & route ───────────────────────────────────────────────────────
   const [pickup, setPickup] = React.useState<MapCoords | null>(null);
@@ -425,11 +424,6 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
   const [advanceAmount, setAdvanceAmount] = React.useState('');
   const [paymentMethod, setPaymentMethod] = React.useState<'cash' | 'card'>('cash');
 
-  // ── AI Driver matching (vehicle bookings only) ─────────────────────────────
-  const [aiMatches, setAiMatches] = React.useState<DriverMatch[]>([]);
-  const [aiLoading, setAiLoading] = React.useState(false);
-  const [selectedDriverId, setSelectedDriverId] = React.useState<string | null>(null);
-
   // ── Submission ─────────────────────────────────────────────────────────────
   const [submitting, setSubmitting] = React.useState(false);
   const [submitError, setSubmitError] = React.useState('');
@@ -437,14 +431,46 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
   // ── Derived ────────────────────────────────────────────────────────────────
   const vehicle = bookingType === 'vehicle' ? target as Vehicle | null : null;
   const driver = bookingType === 'driver' ? target as DriverProfile | null : null;
-  const selectedDriver = aiMatches.find(m => m.driver.id === selectedDriverId)?.driver ?? null;
 
-  const days = React.useMemo(() => {
-    if (!startDate || !endDate) return 0;
-    return Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1);
-  }, [startDate, endDate]);
+  const { days, hours, fullDays, extraHours, totalAmount } = React.useMemo(() => {
+    if (!startDate || !endDate || !vehicle) return { days: 0, hours: 0, fullDays: 0, extraHours: 0, totalAmount: 0 };
+    const start = new Date(`${startDate}T${startTime || '09:00'}:00`);
+    const end = new Date(`${endDate}T${endTime || '18:00'}:00`);
+    const diffMs = end.getTime() - start.getTime();
+    const dailyRate = vehicle.price_per_day;
+    const hourlyRate = dailyRate / 24;
 
-  const totalAmount = vehicle ? vehicle.price_per_day * days : 0;
+    if (diffMs <= 0) {
+      return { days: 1, hours: 0, fullDays: 1, extraHours: 0, totalAmount: Math.round(dailyRate) };
+    }
+
+    const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 10) / 10;
+
+    // Minimum 1 full day for duration <= 24 hours
+    if (totalHours <= 24) {
+      return {
+        days: 1,
+        hours: totalHours,
+        fullDays: 1,
+        extraHours: 0,
+        totalAmount: Math.round(dailyRate),
+      };
+    }
+
+    // For duration > 24 hours: full day(s) plus extra hours
+    const fDays = Math.floor(totalHours / 24);
+    const eHours = Math.round((totalHours - (fDays * 24)) * 10) / 10;
+    const cDays = Math.ceil(totalHours / 24);
+    const amount = Math.round((fDays * dailyRate) + (eHours * hourlyRate));
+
+    return {
+      days: cDays,
+      hours: totalHours,
+      fullDays: fDays,
+      extraHours: eHours,
+      totalAmount: amount,
+    };
+  }, [startDate, endDate, startTime, endTime, vehicle]);
 
   const targetName = bookingType === 'vehicle' && vehicle
     ? `${vehicle.brand} ${vehicle.model}`
@@ -495,22 +521,6 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
     }).catch(() => {}).finally(() => setCalcingRoute(false));
   }, [pickup, destination]);
 
-  // ── AI driver matching ─────────────────────────────────────────────────────
-  const runAIMatch = async () => {
-    if (!pickup?.lat) return;
-    setAiLoading(true);
-    try {
-      const { data: drivers } = await DriverService.list({ approval_status: 'approved', availability_status: 'available', per_page: 50 });
-      const matches = await AIService.getDriverMatches({ pickup_location: pickup, distance_km: distanceKm ?? 0 }, drivers);
-      setAiMatches(matches.slice(0, 5));
-      if (matches.length) setSelectedDriverId(matches[0].driver.id);
-    } catch {
-      setAiMatches([]);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
   // ── GPS request ────────────────────────────────────────────────────────────
   const handleRequestGPS = async () => {
     setRequestingGPS(true);
@@ -549,7 +559,6 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
         advance_amount: advanceAmount ? parseFloat(advanceAmount) : 0,
         payment_method: paymentMethod,
         notes: notes || undefined,
-        driver_assigned_id: selectedDriverId ?? undefined,
       } as Parameters<typeof BookingService.create>[0]);
       navigate('/bookings', { state: { success: 'Booking submitted successfully! You will be notified once approved.' } });
     } catch (err: unknown) {
@@ -613,6 +622,30 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
       </div>
 
       <ServiceBadge bookingType={bookingType} />
+
+      {bookingType === 'vehicle' && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-300/80 rounded-2xl p-4 mb-6 gap-3 shadow-sm">
+          <div className="flex items-center space-x-3">
+            <div className="p-2.5 bg-emerald-600 text-white rounded-xl flex-shrink-0 shadow-sm">
+              <Shield className="h-6 w-6" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-emerald-950">Looking for Vehicle-Only / Self-Drive Rental?</h4>
+              <p className="text-xs text-emerald-700">Rent this vehicle without a driver with verified document check and condition handover.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate(`/customer/rentals/apply?vehicle_id=${vehicle?.id || id}`)}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-xl transition-all whitespace-nowrap flex items-center justify-center space-x-1.5 shadow-md hover:shadow-lg"
+          >
+            <Shield className="h-4 w-4" />
+            <span>Switch to Self-Drive Rental</span>
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       <StepBar steps={steps} current={stepIndex} />
 
       {submitError && (
@@ -759,80 +792,25 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
 
           {days > 0 && vehicle && (
             <div className="bg-blue-50 rounded-xl px-4 py-3 flex items-center justify-between">
-              <span className="text-sm text-blue-700">{days} day{days > 1 ? 's' : ''} × LKR {vehicle.price_per_day.toLocaleString()}</span>
+              <div>
+                <span className="text-sm font-semibold text-blue-900">
+                  {hours <= 24
+                    ? `1 Day (${hours} hrs) × LKR ${vehicle.price_per_day.toLocaleString()}`
+                    : `${fullDays}d + ${extraHours}h (LKR ${(vehicle.price_per_day / 24).toFixed(0)}/h)`}
+                </span>
+                <span className="block text-[11px] text-blue-600 font-medium">
+                  {hours <= 24 ? 'Up to 24 hrs = 1 full day minimum' : `${hours} hrs total • Extra hours charged hourly`}
+                </span>
+              </div>
               <span className="text-xl font-black text-blue-700">LKR {totalAmount.toLocaleString()}</span>
             </div>
           )}
 
           <div className="flex space-x-3">
             <button onClick={() => setStep('location')} className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">← Back</button>
-            <button onClick={() => {
-              if (bookingType === 'vehicle') { setStep('driver'); runAIMatch(); }
-              else setStep('summary');
-            }} disabled={!startDate || !endDate}
+            <button onClick={() => setStep('summary')} disabled={!startDate || !endDate}
               className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl text-sm font-semibold transition-colors">
-              {bookingType === 'vehicle' ? 'Choose Driver →' : 'Review Booking →'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ════ STEP: DRIVER (vehicle bookings only) ══════════════════════════ */}
-      {step === 'driver' && bookingType === 'vehicle' && (
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-gray-900 flex items-center space-x-2">
-              <Target className="h-5 w-5 text-indigo-600" /><span>AI Driver Matching</span>
-            </h2>
-            <span className="text-xs text-gray-400">Optional</span>
-          </div>
-          <p className="text-sm text-gray-500">AI has ranked the best available drivers for your route. Select one or skip.</p>
-
-          {aiLoading ? (
-            <div className="flex items-center justify-center py-10 space-x-3">
-              <div className="animate-spin h-6 w-6 border-2 border-indigo-500 border-t-transparent rounded-full" />
-              <span className="text-sm text-gray-500">Finding best drivers for your route…</span>
-            </div>
-          ) : aiMatches.length === 0 ? (
-            <div className="text-center py-8 bg-gray-50 rounded-xl">
-              <User className="h-10 w-10 text-gray-300 mx-auto mb-2" />
-              <p className="text-sm text-gray-500">No available drivers found. You can continue without one.</p>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {aiMatches.map((m, i) => {
-                const name = m.driver.user ? `${m.driver.user.first_name} ${m.driver.user.last_name}` : 'Driver';
-                const isSelected = selectedDriverId === m.driver.id;
-                return (
-                  <button key={m.driver.id} type="button"
-                    onClick={() => setSelectedDriverId(isSelected ? null : m.driver.id)}
-                    className={`w-full flex items-center space-x-3 p-3.5 rounded-xl border-2 text-left transition-all ${isSelected ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200 hover:bg-gray-50'}`}>
-                    <div className="relative flex-shrink-0">
-                      <img src={m.driver.profile_photo || DRIVER_PLACEHOLDER} alt={name}
-                        className="h-11 w-11 rounded-full object-cover border border-gray-200"
-                        onError={e => { (e.target as HTMLImageElement).src = DRIVER_PLACEHOLDER; }} />
-                      {i === 0 && <div className="absolute -top-1 -right-1 h-4 w-4 bg-amber-400 rounded-full flex items-center justify-center"><Zap className="h-2.5 w-2.5 text-white" /></div>}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-gray-900 text-sm">{name}</span>
-                        <span className={`text-xl font-black ${isSelected ? 'text-indigo-600' : 'text-gray-400'}`}>{m.final_score}</span>
-                      </div>
-                      <p className="text-xs text-gray-500">{m.driver.experience_years}y exp · ⭐ {m.driver.rating.toFixed(1)} · {m.distance_km}km away · ~{m.estimated_arrival_min}min</p>
-                      {m.reason && <p className="text-xs text-indigo-600 mt-0.5 truncate">{m.reason}</p>}
-                    </div>
-                    {isSelected && <Check className="h-5 w-5 text-indigo-600 flex-shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="flex space-x-3">
-            <button onClick={() => setStep('schedule')} className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">← Back</button>
-            <button onClick={() => setStep('summary')}
-              className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-colors">
-              {selectedDriverId ? 'Review Booking →' : 'Skip & Review →'}
+              Review Booking →
             </button>
           </div>
         </div>
@@ -842,11 +820,7 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
       {step === 'summary' && (
         <div className="space-y-4">
           {/* Route map recap */}
-          <RouteMap pickup={pickup} destination={destination}
-            driverPins={selectedDriver ? [{
-              name: selectedDriver.user ? `${selectedDriver.user.first_name}` : 'Driver',
-              coords: { lat: (pickup?.lat ?? 6.9) + 0.02, lng: (pickup?.lng ?? 79.8) + 0.02 },
-            }] : []} />
+          <RouteMap pickup={pickup} destination={destination} />
 
           {/* Summary card */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
@@ -879,7 +853,8 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
               <div className="grid grid-cols-2 gap-3">
                 {[
                   ['Dates', `${startDate} → ${endDate}`],
-                  ['Time', `${startTime} – ${endTime}`],
+                  ['Time', `${startTime} – ${endTime} (${hours} hrs)`],
+                  ['Duration', hours <= 24 ? `1 Day (${hours} hrs)` : `${fullDays}d + ${extraHours}h (${hours} hrs)`],
                   ['Passengers', `${passengers} person${passengers > 1 ? 's' : ''}`],
                   ...(bookingType === 'vehicle' ? [['AC', acPref === 'required' ? 'Required' : acPref === 'none' ? 'None' : 'Any']] : []),
                 ].map(([l, v]) => (
@@ -911,16 +886,18 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
                 ) : null}
               </div>
 
-              {/* Assigned driver */}
-              {selectedDriver && (
-                <div className="bg-indigo-50 rounded-xl px-4 py-3 flex items-center space-x-3 border border-indigo-100">
-                  <img src={selectedDriver.profile_photo || DRIVER_PLACEHOLDER} alt="" className="h-10 w-10 rounded-full object-cover flex-shrink-0" onError={e => { (e.target as HTMLImageElement).src = DRIVER_PLACEHOLDER; }} />
-                  <div className="flex-1">
-                    <p className="text-xs text-indigo-500">AI-Matched Driver</p>
-                    <p className="text-sm font-bold text-indigo-900">{selectedDriver.user ? `${selectedDriver.user.first_name} ${selectedDriver.user.last_name}` : 'Driver'}</p>
-                    <p className="text-xs text-indigo-600">{selectedDriver.experience_years}y exp · ⭐ {selectedDriver.rating.toFixed(1)}</p>
+              {/* Dedicated driver for vehicle with driver rentals */}
+              {bookingType === 'vehicle' && (
+                <div className="bg-emerald-50 rounded-xl px-4 py-3 flex items-center space-x-3 border border-emerald-200">
+                  <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 text-emerald-700">
+                    <User className="h-5 w-5" />
                   </div>
-                  <Target className="h-5 w-5 text-indigo-500 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-[10px] uppercase font-bold text-emerald-600 tracking-wider">Dedicated Driver Included</p>
+                    <p className="text-sm font-bold text-emerald-950">Professional driver provided with this vehicle</p>
+                    <p className="text-xs text-emerald-700">A qualified, verified driver is assigned directly by the vehicle owner for your entire trip.</p>
+                  </div>
+                  <Shield className="h-5 w-5 text-emerald-600 flex-shrink-0" />
                 </div>
               )}
 
@@ -928,7 +905,9 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
               {totalAmount > 0 && (
                 <>
                   <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center justify-between">
-                    <span className="text-sm text-emerald-800 font-medium">Estimated Total ({days} day{days > 1 ? 's' : ''})</span>
+                    <span className="text-sm text-emerald-800 font-medium">
+                      Estimated Total ({hours <= 24 ? '1 day' : `${fullDays}d + ${extraHours}h`} • {hours} hrs)
+                    </span>
                     <span className="text-2xl font-black text-emerald-700">LKR {totalAmount.toLocaleString()}</span>
                   </div>
                   <div>
@@ -957,7 +936,7 @@ export default function BookingCreatePage({ bookingType }: BookingCreatePageProp
           </div>
 
           <div className="flex space-x-3">
-            <button onClick={() => setStep(bookingType === 'vehicle' ? 'driver' : 'schedule')}
+            <button onClick={() => setStep('schedule')}
               className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">← Back</button>
             <button onClick={handleSubmit} disabled={submitting}
               className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl text-sm font-bold transition-colors shadow-sm flex items-center justify-center space-x-2">

@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Car, User, Shield, CreditCard, FileText, MapPin, Zap, ArrowRight, ArrowLeft } from 'lucide-react';
 import { VehicleService, Vehicle } from '../../services/api/VehicleService';
-import { RentalService } from '../../services/api/rental.service';
+import { RentalService, RentalPriceEstimate } from '../../services/api/rental.service';
 import CameraCapture from '../../components/rental/CameraCapture';
 import LocationSelector from '../../components/rental/LocationSelector';
+import RentalPriceEstimateCard from '../../components/rental/RentalPriceEstimateCard';
 import { MapCoords } from '../../components/map/InteractiveMap';
 
 export default function CustomerRentalApply() {
@@ -15,6 +16,10 @@ export default function CustomerRentalApply() {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Authoritative Pricing Estimate State
+  const [estimate, setEstimate] = useState<RentalPriceEstimate | null>(null);
+  const [estimateLoading, setEstimateLoading] = useState<boolean>(false);
 
   // Multi-step state
   const [step, setStep] = useState(1);
@@ -56,6 +61,51 @@ export default function CustomerRentalApply() {
       VehicleService.getById(vehicleId).then(setVehicle);
     }
   }, [vehicleId]);
+
+  // Fetch authoritative pricing estimate whenever dates or times change
+  useEffect(() => {
+    if (vehicle && formData.start_date && formData.end_date) {
+      const startAt = `${formData.start_date} ${formData.start_time || '09:00'}:00`;
+      const endAt = `${formData.end_date} ${formData.end_time || '18:00'}:00`;
+      const startDate = new Date(startAt);
+      const endDate = new Date(endAt);
+
+      if (endDate > startDate) {
+        setEstimateLoading(true);
+        RentalService.getEstimate({
+          vehicle_id: vehicle.id,
+          start_at: startAt,
+          end_at: endAt,
+        })
+          .then(setEstimate)
+          .catch((err) => {
+            console.error('Failed to get estimate from backend:', err);
+            // Local fallback calculation based on backend business rules
+            const diffMs = endDate.getTime() - startDate.getTime();
+            const days = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+            const rate = vehicle.price_per_day || 0;
+            const extraRate = vehicle.extra_km_rate || 50;
+            setEstimate({
+              vehicle_id: typeof vehicle.id === 'number' ? vehicle.id : 0,
+              vehicle_uuid: vehicle.uuid,
+              make: vehicle.make,
+              model: vehicle.model,
+              daily_rate: rate,
+              estimated_days: days,
+              included_km_per_day: 100,
+              estimated_included_km: days * 100,
+              extra_km_rate: extraRate,
+              estimated_base_amount: days * rate,
+              estimated_total_amount: days * rate,
+              disclaimer: 'Approximate price only. Final rental price will be calculated after vehicle return using the actual odometer reading.',
+            });
+          })
+          .finally(() => setEstimateLoading(false));
+      } else {
+        setEstimate(null);
+      }
+    }
+  }, [vehicle, formData.start_date, formData.start_time, formData.end_date, formData.end_time]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -529,6 +579,13 @@ export default function CustomerRentalApply() {
                 className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none"
               />
             </div>
+
+            {/* Authoritative Approximate Price Card */}
+            <RentalPriceEstimateCard
+              estimate={estimate}
+              loading={estimateLoading}
+              vehicleName={vehicle ? `${vehicle.make} ${vehicle.model}` : undefined}
+            />
           </div>
         )}
 
@@ -583,6 +640,13 @@ export default function CustomerRentalApply() {
                 </div>
               )}
             </div>
+
+            {/* Authoritative Approximate Pricing Breakdown */}
+            <RentalPriceEstimateCard
+              estimate={estimate}
+              loading={estimateLoading}
+              vehicleName={vehicle ? `${vehicle.make} ${vehicle.model}` : undefined}
+            />
           </div>
         )}
       </div>

@@ -80,7 +80,7 @@ export default function Home() {
           <div className="max-w-3xl mb-8">
             <h1 className="text-5xl md:text-6xl font-black text-white leading-tight mb-6 tracking-tight">
               Sri Lanka's Premier<br />
-              <span className="text-blue-400">Vehicle Rental</span> Platform
+              <span className="text-blue-400">Vehicles & Drivers Rental</span> Platform
             </h1>
             <p className="text-xl text-gray-200 max-w-2xl mx-auto leading-relaxed">
               Rent verified vehicles, hire professional drivers, or plan your entire journey with AI recommendations.

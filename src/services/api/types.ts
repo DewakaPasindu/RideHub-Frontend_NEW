@@ -62,7 +62,11 @@ export interface Vehicle {
   seat_count: number;
   fuel_type: string;
   transmission: string;
+  pricing_type?: 'per_day' | 'per_km' | 'both';
   price_per_day: number;
+  price_per_km?: number | null;
+  included_km_per_day?: number;
+  extra_km_rate?: number;
   description: string | null;
   images: string[];
   has_ac: boolean;
@@ -150,7 +154,17 @@ export interface Booking {
   created_at: string;
   updated_at: string;
   user?: { first_name: string; last_name: string; email: string; mobile_number: string | null };
-  vehicle?: { brand: string; model: string; vehicle_number: string } | null;
+  vehicle?: {
+    brand: string;
+    model: string;
+    vehicle_number: string;
+    uuid?: string;
+    owner?: {
+      name: string;
+      phone: string | null;
+      email: string | null;
+    } | null;
+  } | null;
   driver_profile?: { license_number: string; user: { first_name: string; last_name: string } } | null;
 }
 
@@ -370,3 +384,145 @@ export type BookingInsert = Omit<
   | 'created_at'
   | 'updated_at'
 >;
+
+export interface ProfessionalCapabilities {
+  is_driver: boolean;
+  is_vehicle_owner: boolean;
+  is_combined: boolean;
+  has_professional_access: boolean;
+  driver_status: 'approved' | 'pending' | 'rejected' | 'none';
+  vehicle_owner_status: 'approved' | 'pending' | 'rejected' | 'none';
+}
+
+export interface MonthlyTrendItem {
+  month: number;
+  year: number;
+  label: string;
+  short_label: string;
+  gross: number;
+  platform_fee: number;
+  net: number;
+  driver_gross: number;
+  rental_gross: number;
+}
+
+export interface EarningRecord {
+  id: number;
+  uuid: string;
+  user_id: number;
+  earning_type: 'RIDE' | 'VEHICLE_RENTAL';
+  reference_type: string;
+  reference_id: number;
+  reference_uuid: string;
+  gross_amount: number;
+  platform_fee_rate: number;
+  platform_fee_amount: number;
+  net_amount: number;
+  earning_date: string;
+  status: 'available' | 'pending' | 'paid' | 'cancelled';
+  description: string;
+  metadata?: any;
+  created_at: string;
+}
+
+export interface StatementPayment {
+  id: number;
+  uuid: string;
+  amount: number;
+  payment_method: string;
+  payment_reference: string;
+  paid_at: string;
+  status: string;
+}
+
+export interface MonthlyStatement {
+  id: number;
+  uuid: string;
+  user_id: number;
+  statement_month: number;
+  statement_year: number;
+  month_name: string;
+  gross_amount: number;
+  platform_fee_rate: number;
+  platform_fee_amount: number;
+  adjustments: number;
+  net_amount: number;
+  amount_paid: number;
+  amount_due: number;
+  status: 'PENDING' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'DISPUTED';
+  generated_at: string;
+  paid_at?: string | null;
+  payment_reference?: string | null;
+  payment_method?: string | null;
+  payments?: StatementPayment[];
+}
+
+export interface VehiclePerformanceItem {
+  vehicle_id: number;
+  uuid: string;
+  brand: string;
+  model: string;
+  vehicle_number: string;
+  rentals_count: number;
+  rental_days: number;
+  gross_earnings: number;
+  platform_fee: number;
+  net_earnings: number;
+  average_rating: number;
+  utilization_rate: number;
+}
+
+export interface ProfessionalOverview {
+  capabilities: ProfessionalCapabilities;
+  this_month: {
+    gross: number;
+    platform_fee: number;
+    net: number;
+    rides_count: number;
+    rentals_count: number;
+    total_services: number;
+    growth_percentage: number;
+  };
+  lifetime: {
+    gross: number;
+    platform_fee: number;
+    net: number;
+    total_services: number;
+  };
+  active_statement?: MonthlyStatement | null;
+  breakdown_by_type: {
+    rides: { gross: number; fee: number; net: number; count: number };
+    rentals: { gross: number; fee: number; net: number; count: number };
+  };
+  monthly_trend: MonthlyTrendItem[];
+  recent_earnings: EarningRecord[];
+}
+
+export interface DriverAnalyticsData {
+  total_rides: number;
+  completed_rides: number;
+  cancelled_rides: number;
+  completion_rate: number;
+  gross_earnings: number;
+  platform_fee: number;
+  net_earnings: number;
+  average_per_ride: number;
+  this_month_gross: number;
+  this_month_rides: number;
+  rating: number;
+  review_count: number;
+}
+
+export interface VehicleOwnerAnalyticsData {
+  total_vehicles: number;
+  active_vehicles: number;
+  rented_vehicles: number;
+  total_rentals: number;
+  total_rental_days: number;
+  gross_earnings: number;
+  platform_fee: number;
+  net_earnings: number;
+  average_rental_revenue: number;
+  fleet_utilization: number;
+  vehicle_performance_table: VehiclePerformanceItem[];
+}

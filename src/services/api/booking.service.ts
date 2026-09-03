@@ -16,6 +16,29 @@ export class BookingService {
     return unwrapPaginated({ data });
   }
 
+  static async listForOwner(filters: BookingFilters = {}): Promise<{ data: Booking[]; count: number }> {
+    const { data } = await withRetry(() =>
+      api.get<PaginatedResponse<Booking>>('/owner/bookings', { params: filters })
+    );
+    return unwrapPaginated({ data });
+  }
+
+  static async ownerApprove(id: string): Promise<void> {
+    await api.post(`/owner/bookings/${id}/approve`);
+  }
+
+  static async ownerReject(id: string, reason: string): Promise<void> {
+    await api.post(`/owner/bookings/${id}/reject`, { reason });
+  }
+
+  static async ownerStartTrip(id: string): Promise<void> {
+    await api.post(`/owner/bookings/${id}/start-trip`);
+  }
+
+  static async ownerCompleteTrip(id: string): Promise<void> {
+    await api.post(`/owner/bookings/${id}/complete-trip`);
+  }
+
   static async getById(id: string): Promise<Booking | null> {
     try {
       const { data } = await api.get<{ data: Booking } | Booking>(`/bookings/${id}`);
